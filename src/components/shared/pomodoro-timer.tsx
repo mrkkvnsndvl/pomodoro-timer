@@ -1,159 +1,34 @@
-"use client";
-
-import { useState, useEffect, useCallback } from "react";
-import Timer from "./timer";
-import Settings from "./settings";
-import SessionTracker from "./session-tracker";
-import MotivationalQuote from "./motivational-quote";
-import { ThemeToggle } from "./theme-toggle";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { loadState, saveState } from "@/features/pomodoro/utils/state-manager";
-import { soundManager } from "@/features/pomodoro/utils/sound";
+import { playSound } from "@/utils/sound";
+import {
+  loadSessionsCount,
+  loadSettings,
+  saveSessionsCount,
+  saveSettings,
+} from "@/utils/storage";
+import { useEffect, useState } from "react";
+import MotivationalQuote from "./motivational-quote";
+import SessionTracker from "./session-tracker";
+import Settings from "./settings";
+import { ThemeToggle } from "./theme-toggle";
+import Timer from "./timer";
 
+// Type for different session types
 type SessionType = "work" | "shortBreak" | "longBreak";
 
-const DEFAULT_SETTINGS = {
-  workDuration: 25 * 60,
-  shortBreakDuration: 5 * 60,
-  longBreakDuration: 15 * 60,
-};
-
 export default function PomodoroTimer() {
-  // Initialize state from localStorage or use defaults
-  const savedState = loadState();
-  const [settings, setSettings] = useState(savedState?.settings || DEFAULT_SETTINGS);
-  const [currentSession, setCurrentSession] = useState<SessionType>(savedState?.currentSession || "work");
-  const [isRunning, setIsRunning] = useState(savedState?.isRunning || false);
-  const [timeLeft, setTimeLeft] = useState(savedState?.timeLeft || settings.workDuration);
-  const [sessionsCompleted, setSessionsCompleted] = useState(savedState?.sessionsCompleted || 0);
-
-  // Save state whenever it changes
-  useEffect(() => {
-    if (timeLeft > 0 || !isRunning) { // Only save state when timer is running or when explicitly changed
-      saveState({
-        settings,
-        currentSession,
-        isRunning,
-        timeLeft,
-        sessionsCompleted,
-      });
-    }
-  }, [settings, currentSession, isRunning, timeLeft, sessionsCompleted]);
-
-  const switchSession = useCallback(
-    (newSession: SessionType) => {
-      setIsRunning(false);
-      setCurrentSession(newSession);
-      
-      let newTimeLeft;
-      switch (newSession) {
-        case "work":
-          newTimeLeft = settings.workDuration;
-          break;
-        case "shortBreak":
-          newTimeLeft = settings.shortBreakDuration;
-          break;
-        case "longBreak":
-          newTimeLeft = settings.longBreakDuration;
-          break;
-      }
-      
-      setTimeLeft(newTimeLeft);
-      
-      // Save state after switching session
-      saveState({
-        settings,
-        currentSession: newSession,
-        isRunning: false,
-        timeLeft: newTimeLeft,
-        sessionsCompleted,
-      });
-    },
-    [settings, sessionsCompleted]
+  // Load saved settings and sessions count
+  const [settings, setSettings] = useState(loadSettings());
+  const [sessionsCompleted, setSessionsCompleted] = useState(
+    loadSessionsCount()
   );
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
+  // Timer state
+  const [currentSession, setCurrentSession] = useState<SessionType>("work");
+  const [isRunning, setIsRunning] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(settings.workDuration);
 
-    if (isRunning && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prevTime) => {
-          const newTime = prevTime - 1;
-          return newTime;
-        });
-      }, 1000);
-    } else if (timeLeft === 0 && isRunning) {
-      soundManager.playSound(currentSession === "work" ? "workComplete" : "breakComplete");
-      setIsRunning(false);
-      
-      // Handle session completion and switching
-      const handleSessionComplete = () => {
-        if (currentSession === "work") {
-          // After work session, increment count and switch to appropriate break
-          const newSessions = sessionsCompleted + 1;
-          const nextSession = newSessions % 4 === 0 ? "longBreak" : "shortBreak";
-          
-          setSessionsCompleted(newSessions);
-          saveState({
-            settings,
-            currentSession,
-            isRunning: false,
-            timeLeft: 0,
-            sessionsCompleted: newSessions,
-          });
-          
-          setTimeout(() => {
-            switchSession(nextSession);
-          }, 500);
-        } else {
-          // After break session, switch back to work
-          setTimeout(() => {
-            switchSession("work");
-          }, 500);
-        }
-      };
-
-      handleSessionComplete();
-    }
-
-    return () => clearInterval(interval);
-  }, [isRunning, timeLeft, currentSession, settings, sessionsCompleted, switchSession]);
-
-  const toggleTimer = () => {
-    setIsRunning(!isRunning);
-  };
-
-  const resetTimer = () => {
-    setIsRunning(false);
-    switchSession("work");
-    setSessionsCompleted(0);
-  };
-
-  const updateSettings = useCallback((newSettings: typeof settings) => {
-    setSettings(newSettings);
-    if (!isRunning) {
-      switch (currentSession) {
-        case "work":
-          setTimeLeft(newSettings.workDuration);
-          break;
-        case "shortBreak":
-          setTimeLeft(newSettings.shortBreakDuration);
-          break;
-        case "longBreak":
-          setTimeLeft(newSettings.longBreakDuration);
-          break;
-      }
-    }
-    // Save settings to localStorage
-    saveState({
-      settings: newSettings,
-      currentSession,
-      isRunning,
-      timeLeft,
-      sessionsCompleted,
-    });
-  }, [currentSession, isRunning, timeLeft, sessionsCompleted]);
-
+  // Format time for display (MM:SS)
   const formatTime = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -162,30 +37,115 @@ export default function PomodoroTimer() {
       .padStart(2, "0")}`;
   };
 
-  // Update document title with timer
+  // Update page title
   useEffect(() => {
-    const timerText = formatTime(timeLeft);
-    const sessionEmoji = currentSession === "work" ? "🎯" : "☕";
-    document.title = `${timerText} ${sessionEmoji} - Pomodoro Timer`;
-
-    // Cleanup - reset title when component unmounts
+    const emoji = currentSession === "work" ? "🎯" : "☕";
+    document.title = `${formatTime(timeLeft)} ${emoji} - Pomodoro Timer`;
     return () => {
       document.title = "Pomodoro Timer";
     };
   }, [timeLeft, currentSession]);
 
+  // Timer logic
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+
+    if (isRunning && timeLeft > 0) {
+      // Count down every second
+      timer = setInterval(() => {
+        setTimeLeft((time) => time - 1);
+      }, 1000);
+    } else if (timeLeft === 0 && isRunning) {
+      // Timer completed
+      setIsRunning(false);
+
+      if (currentSession === "work") {
+        // Work session completed
+        playSound("workComplete");
+        const newCount = sessionsCompleted + 1;
+        setSessionsCompleted(newCount);
+        saveSessionsCount(newCount);
+
+        // Switch to break
+        const nextSession = newCount % 4 === 0 ? "longBreak" : "shortBreak";
+        handleSessionChange(nextSession);
+      } else {
+        // Break completed
+        playSound("breakComplete");
+        handleSessionChange("work");
+      }
+    }
+
+    return () => clearInterval(timer);
+  }, [isRunning, timeLeft, currentSession, sessionsCompleted]);
+
+  // Handle session type change
+  const handleSessionChange = (newSession: SessionType) => {
+    setIsRunning(false);
+    setCurrentSession(newSession);
+
+    // Set appropriate time for the session
+    switch (newSession) {
+      case "work":
+        setTimeLeft(settings.workDuration);
+        break;
+      case "shortBreak":
+        setTimeLeft(settings.shortBreakDuration);
+        break;
+      case "longBreak":
+        setTimeLeft(settings.longBreakDuration);
+        break;
+    }
+  };
+
+  // Handle settings update
+  const updateSettings = (newSettings: typeof settings) => {
+    setSettings(newSettings);
+    saveSettings(newSettings);
+
+    // Update current timer immediately
+    if (!isRunning) {
+      if (currentSession === "work") {
+        setTimeLeft(newSettings.workDuration);
+      } else if (currentSession === "shortBreak") {
+        setTimeLeft(newSettings.shortBreakDuration);
+      } else if (currentSession === "longBreak") {
+        setTimeLeft(newSettings.longBreakDuration);
+      }
+    }
+  };
+
+  // Handle timer controls
+  const toggleTimer = () => {
+    playSound("buttonClick");
+    setIsRunning(!isRunning);
+  };
+
+  const resetTimer = () => {
+    playSound("buttonClick");
+    setIsRunning(false);
+    handleSessionChange(currentSession);
+  };
+
   return (
     <div className="flex flex-col items-center space-y-6 p-4 w-full max-w-md mx-auto min-h-screen justify-center">
       <h1 className="text-4xl font-bold">Pomodoro Timer</h1>
       <Tabs
+        defaultValue="work"
         value={currentSession}
-        onValueChange={(value) => switchSession(value as SessionType)}
+        onValueChange={(value) => handleSessionChange(value as SessionType)}
         className="w-full"
       >
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="work">Work</TabsTrigger>
-          <TabsTrigger value="shortBreak">Short Break</TabsTrigger>
-          <TabsTrigger value="longBreak">Long Break</TabsTrigger>
+        <TabsList className="w-full">
+          <TabsTrigger value="work" className="flex-1">
+            Work
+          </TabsTrigger>
+          <TabsTrigger value="shortBreak" className="flex-1">
+            Short Break
+          </TabsTrigger>
+          <TabsTrigger value="longBreak" className="flex-1">
+            Long Break
+          </TabsTrigger>
         </TabsList>
       </Tabs>
       <Timer
@@ -193,14 +153,11 @@ export default function PomodoroTimer() {
         isRunning={isRunning}
         toggleTimer={toggleTimer}
         resetTimer={resetTimer}
-        currentSession={currentSession}
       />
       <SessionTracker sessionsCompleted={sessionsCompleted} />
       <Settings settings={settings} updateSettings={updateSettings} />
       <MotivationalQuote />
-      <div className="mt-6">
-        <ThemeToggle />
-      </div>
+      <ThemeToggle />
     </div>
   );
 }

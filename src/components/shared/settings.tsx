@@ -1,6 +1,4 @@
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +7,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { SettingsIcon } from "lucide-react";
+import { useState } from "react";
 
 type SettingsProps = {
   settings: {
@@ -29,6 +29,8 @@ export default function Settings({ settings, updateSettings }: SettingsProps) {
     const { name, value } = e.target;
     const newSettings = { ...localSettings, [name]: parseInt(value) * 60 };
     setLocalSettings(newSettings);
+
+    // Directly call updateSettings to apply changes immediately
     updateSettings(newSettings);
   };
 

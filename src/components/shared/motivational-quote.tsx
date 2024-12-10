@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { useEffect, useState } from "react";
 
 const quotes = [
   "The secret of getting ahead is getting started. - Mark Twain",
