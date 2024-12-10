@@ -29,36 +29,43 @@ export default function PomodoroTimer() {
 
   // Save state whenever it changes
   useEffect(() => {
-    saveState({
-      settings,
-      currentSession,
-      isRunning,
-      timeLeft,
-      sessionsCompleted,
-    });
+    if (timeLeft > 0 || !isRunning) { // Only save state when timer is running or when explicitly changed
+      saveState({
+        settings,
+        currentSession,
+        isRunning,
+        timeLeft,
+        sessionsCompleted,
+      });
+    }
   }, [settings, currentSession, isRunning, timeLeft, sessionsCompleted]);
 
   const switchSession = useCallback(
     (newSession: SessionType) => {
       setIsRunning(false);
       setCurrentSession(newSession);
+      
+      let newTimeLeft;
       switch (newSession) {
         case "work":
-          setTimeLeft(settings.workDuration);
+          newTimeLeft = settings.workDuration;
           break;
         case "shortBreak":
-          setTimeLeft(settings.shortBreakDuration);
+          newTimeLeft = settings.shortBreakDuration;
           break;
         case "longBreak":
-          setTimeLeft(settings.longBreakDuration);
+          newTimeLeft = settings.longBreakDuration;
           break;
       }
+      
+      setTimeLeft(newTimeLeft);
+      
       // Save state after switching session
       saveState({
         settings,
         currentSession: newSession,
         isRunning: false,
-        timeLeft: settings[`${newSession}Duration`],
+        timeLeft: newTimeLeft,
         sessionsCompleted,
       });
     },
@@ -72,32 +79,41 @@ export default function PomodoroTimer() {
       interval = setInterval(() => {
         setTimeLeft((prevTime) => {
           const newTime = prevTime - 1;
-          // Save state on each tick
-          saveState({
-            settings,
-            currentSession,
-            isRunning,
-            timeLeft: newTime,
-            sessionsCompleted,
-          });
           return newTime;
         });
       }, 1000);
-    } else if (timeLeft === 0) {
+    } else if (timeLeft === 0 && isRunning) {
       soundManager.playSound(currentSession === "work" ? "workComplete" : "breakComplete");
       setIsRunning(false);
       
-      if (currentSession === "work") {
-        setSessionsCompleted((prev) => {
-          const newSessions = prev + 1;
-          // Determine next break type
+      // Handle session completion and switching
+      const handleSessionComplete = () => {
+        if (currentSession === "work") {
+          // After work session, increment count and switch to appropriate break
+          const newSessions = sessionsCompleted + 1;
           const nextSession = newSessions % 4 === 0 ? "longBreak" : "shortBreak";
-          switchSession(nextSession);
-          return newSessions;
-        });
-      } else {
-        switchSession("work");
-      }
+          
+          setSessionsCompleted(newSessions);
+          saveState({
+            settings,
+            currentSession,
+            isRunning: false,
+            timeLeft: 0,
+            sessionsCompleted: newSessions,
+          });
+          
+          setTimeout(() => {
+            switchSession(nextSession);
+          }, 500);
+        } else {
+          // After break session, switch back to work
+          setTimeout(() => {
+            switchSession("work");
+          }, 500);
+        }
+      };
+
+      handleSessionComplete();
     }
 
     return () => clearInterval(interval);
@@ -137,6 +153,26 @@ export default function PomodoroTimer() {
       sessionsCompleted,
     });
   }, [currentSession, isRunning, timeLeft, sessionsCompleted]);
+
+  const formatTime = (seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes.toString().padStart(2, "0")}:${remainingSeconds
+      .toString()
+      .padStart(2, "0")}`;
+  };
+
+  // Update document title with timer
+  useEffect(() => {
+    const timerText = formatTime(timeLeft);
+    const sessionEmoji = currentSession === "work" ? "🎯" : "☕";
+    document.title = `${timerText} ${sessionEmoji} - Pomodoro Timer`;
+
+    // Cleanup - reset title when component unmounts
+    return () => {
+      document.title = "Pomodoro Timer";
+    };
+  }, [timeLeft, currentSession]);
 
   return (
     <div className="flex flex-col items-center space-y-6 p-4 w-full max-w-md mx-auto min-h-screen justify-center">
